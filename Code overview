@@ -1,0 +1,100 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#define SCREEN_WIDTH 128#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+const int hallPin = A0;
+// Hall sensor output
+const int potPin = A1; // Potentiometer wiper for zero offset
+const float SENSITIVITY = 0.0014; // SS49E sensitivity: 1.4 mV per Gauss (0.0014 V/G)
+bool oledAvailable = false;
+void setup() {
+Serial.begin(9600);
+Wire.begin();
+if (display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+oledAvailable = true;
+display.clearDisplay();
+display.setTextColor(SSD1306_WHITE);
+display.setTextSize(1);
+display.setCursor(15, 20);
+display.println(F("GAUSS METER"));
+display.setCursor(15, 35);
+display.println(F("Calibrating..."));
+display.display();
+delay(1200);
+} else {
+Serial.println(F("[WARNING] OLED display not detected. Running in Serial mode."));
+}
+}
+Serial.println(F("========================================"));
+Serial.println(F("
+DIGITAL GAUSS METER READY
+"));
+Serial.println(F(" Rotate POT to calibrate baseline to 0 G"));
+Serial.println(F("========================================"));
+void loop() {
+// Average multiple samples to suppress analog noise
+long rawHallSum = 0;
+long rawPotSum = 0;
+const int samples = 50;
+for (int i = 0; i < samples; i++) {
+rawHallSum += analogRead(hallPin);
+rawPotSum += analogRead(potPin);
+delayMicroseconds(150);
+}
+float avgHallRaw = (float)rawHallSum / samples;
+float avgPotRaw = (float)rawPotSum / samples;// Convert raw ADC readings (0-1023) to voltages (0.0V - 5.0V)
+float vHall = (avgHallRaw * 5.0) / 1023.0;
+float vZero = (avgPotRaw * 5.0) / 1023.0;
+// Magnetic field calculation: B = (V_out - V_zero) / Sensitivity
+float deltaV = vHall - vZero;
+float gauss = deltaV / SENSITIVITY;
+Serial.print(F("Gauss: "));
+if (gauss >= 0) Serial.print(F("+"));
+Serial.print(gauss, 1);
+Serial.print(F(" G \t| V_Hall: "));
+Serial.print(vHall, 3);
+Serial.print(F(" V \t| V_Zero: "));
+Serial.print(vZero, 3);
+Serial.print(F(" V \t| "));
+if (gauss > 15.0) {
+Serial.println(F("-> [SOUTH POLE]"));
+} else if (gauss < -15.0) {
+Serial.println(F("-> [NORTH POLE]"));
+} else {
+Serial.println(F("-> [NEUTRAL / ZERO]"));
+}
+if (oledAvailable) {
+display.clearDisplay();
+// Line 1: Header
+display.setTextSize(1);
+display.setCursor(0, 0);
+display.print(F("Magnetic Field:"));
+// Line 2: Large Gauss Reading
+display.setTextSize(2);
+display.setCursor(0, 16);
+if (gauss >= 0) display.print(F("+"));
+display.print((int)gauss);
+display.setTextSize(1);
+display.print(F(" G"));
+// Line 3: Polarity Indicator
+display.setCursor(0, 40);
+if (gauss > 15.0) {
+display.print(F("-> (South Pole)"));
+} else if (gauss < -15.0) {
+display.print(F("-> (North Pole)"));
+} else {
+display.print(F("-> (Neutral / 0G)"));
+}// Line 4: System Voltages
+display.setCursor(0, 54);
+display.print(F("H:"));
+display.print(vHall, 2);
+display.print(F("V Z:"));
+display.print(vZero, 2);
+display.print(F("V"));
+}
+}
+display.display();
+delay(150);
